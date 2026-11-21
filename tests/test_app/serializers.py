@@ -1,5 +1,13 @@
 from rest_framework import serializers
 
+from .models import DemoPageContentExtension
+
+
+class DemoSeoExtensionSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = DemoPageContentExtension
+        fields = ("seo_title",)
+
 
 class CustomSerializer(serializers.Serializer):
     id = serializers.IntegerField()

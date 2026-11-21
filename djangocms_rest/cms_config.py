@@ -9,6 +9,10 @@ from cms.models import Page, PageContent
 from cms.utils.i18n import force_language, get_current_language
 from menus import base
 
+from rest_framework import serializers
+
+from djangocms_rest.serializers.plugins import GenericPluginSerializer
+
 try:
     from filer.models import File
 except ImportError:
@@ -119,19 +123,45 @@ class RESTExtension(CMSAppExtension):
     """Collects REST API extensions contributed by third-party apps.
 
     A consumer app opts in from its own ``cms_config.py`` by setting
-    ``djangocms_rest_enabled = True`` and declaring ``cms_rest_endpoints`` --
-    a list of url patterns that are mounted under the API root. The patterns
-    are expected to be self-contained (including any ``<slug:language>/``
-    prefix), so this extension is a dumb collector.
+    ``djangocms_rest_enabled = True`` and declaring any of:
+
+    * ``cms_rest_endpoints`` -- a list of url patterns that are mounted under
+      the API root. The patterns are expected to be self-contained (including
+      any ``<slug:language>/`` prefix), so they are collected as they are.
+    * ``cms_rest_page_extensions`` -- a list of ``(name, serializer_or_model)``
+      pairs for django CMS page extensions, collected into ``page_extensions``
+      (name -> serializer). A bare extension model is auto-serialized.
     """
 
     def __init__(self):
         self.endpoints = []
+        self.page_extensions = {}
 
     def configure_app(self, cms_config):
         endpoints = getattr(cms_config, "cms_rest_endpoints", None)
         if endpoints:
             self.endpoints.extend(endpoints)
+        page_extensions = getattr(cms_config, "cms_rest_page_extensions", None)
+        if page_extensions:
+            for name, serializer_or_model in page_extensions:
+                self.page_extensions[name] = get_page_extension_serializer(serializer_or_model)
+
+
+def get_page_extension_serializer(serializer_or_model):
+    """Use a registered serializer as is, or auto-serialize a bare extension model
+    with the ``GenericPluginSerializer`` machinery, so relations resolve to API
+    endpoints exactly as they do for plugins."""
+    if issubclass(serializer_or_model, serializers.BaseSerializer):
+        return serializer_or_model
+    return type(
+        f"{serializer_or_model.__name__}AutoSerializer",
+        (GenericPluginSerializer,),
+        {
+            "Meta": type("Meta", (), {"model": serializer_or_model, "fields": "__all__"}),
+            # Plugin-only field: it reads ``obj.parent``, which extensions do not have.
+            "parent_plugin_type": None,
+        },
+    )
 
 
 class RESTCMSConfig(CMSAppConfig):
