@@ -1,5 +1,6 @@
 from django.db import models
 
+from cms.extensions import PageContentExtension, PageExtension
 from cms.models import CMSPlugin
 
 from djangocms_text.fields import HTMLField
@@ -55,3 +56,17 @@ class Topping(models.Model):
     name = models.CharField(max_length=255)
     description = HTMLField()
     pizza = models.ForeignKey(Pizza, on_delete=models.CASCADE)
+
+
+class DemoPageExtension(PageExtension):
+    """Registered for the API as a bare model (auto-serialized)."""
+
+    theme_color = models.CharField(max_length=7, blank=True)
+    featured_pizza = models.ForeignKey(Pizza, on_delete=models.SET_NULL, blank=True, null=True)
+    data = models.JSONField(default=dict, blank=True)
+
+
+class DemoPageContentExtension(PageContentExtension):
+    """Registered for the API with an explicit serializer."""
+
+    seo_title = models.CharField(max_length=255, blank=True)

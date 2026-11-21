@@ -16,7 +16,7 @@ from django.conf import settings
 from django.contrib.sites.models import Site
 from django.core.exceptions import ImproperlyConfigured
 from django.db.utils import OperationalError, ProgrammingError
-from django.urls import clear_url_caches, path
+from django.urls import clear_url_caches, path, reverse
 
 from cms.api import create_page, create_page_content
 from cms.appresolver import clear_app_resolvers
@@ -24,7 +24,10 @@ from cms.appresolver import clear_app_resolvers
 from djangocms_rest import appresolver
 from djangocms_rest.cms_config import RESTExtension
 from djangocms_rest.serializers.pages import get_apphook_api_endpoint
+from djangocms_rest.serializers.plugins import GenericPluginSerializer
 from tests.base import RESTTestCase
+from tests.test_app.models import DemoPageExtension, Pizza
+from tests.test_app.serializers import DemoSeoExtensionSerializer
 
 
 def reload_urlconf():
@@ -198,6 +201,39 @@ class RESTExtensionTestCase(RESTTestCase):
         pattern = path("demo/", lambda request: None, name="demo")
         extension.configure_app(SimpleNamespace(cms_rest_endpoints=[pattern]))
         self.assertEqual(extension.endpoints, [pattern])
+
+    def test_configure_app_ignores_apps_without_page_extensions(self):
+        extension = RESTExtension()
+        extension.configure_app(SimpleNamespace())
+        extension.configure_app(SimpleNamespace(cms_rest_page_extensions=[]))
+        self.assertEqual(extension.page_extensions, {})
+
+    def test_configure_app_collects_page_extensions(self):
+        # tests/test_app/cms_config.py registers both flavours.
+        page_extensions = apps.get_app_config("djangocms_rest").cms_extension.page_extensions
+
+        # An explicit serializer is used as is ...
+        self.assertIs(page_extensions["seo"], DemoSeoExtensionSerializer)
+        # ... a bare model is auto-serialized with the plugin machinery.
+        self.assertTrue(issubclass(page_extensions["appearance"], GenericPluginSerializer))
+        self.assertIs(page_extensions["appearance"].Meta.model, DemoPageExtension)
+
+    def test_auto_serialized_page_extension_resolves_relations(self):
+        pizza = Pizza.objects.create(description="Margherita")
+        instance = DemoPageExtension.objects.create(
+            extended_object=create_page("Home", language="en", template="INHERIT"),
+            featured_pizza=pizza,
+            data={"ref": {"model": "test_app.pizza", "pk": pizza.pk}},
+        )
+        request = self.get_request(reverse("page-root", kwargs={"language": "en"}))
+        serializer_class = apps.get_app_config("djangocms_rest").cms_extension.page_extensions["appearance"]
+
+        data = serializer_class(instance, context={"request": request}).data
+
+        # FKs (serialize_fk) and soft references in JSON (serialize_soft_refs)
+        # resolve to API endpoints, exactly as they do for plugins.
+        self.assertEqual(data["featured_pizza"], f"http://testserver/api/pizza/{pizza.pk}/")
+        self.assertEqual(data["data"], {"ref": f"http://testserver/api/pizza/{pizza.pk}/"})
 
     def test_extension_endpoints_are_empty_while_the_app_registry_is_not_ready(self):
         # Imported lazily: importing the urlconf builds the apphook patterns,

@@ -1,4 +1,4 @@
-"""Alias-style consumer: contributes an independent endpoint via cms_config."""
+"""cms_config consumer: contributes an independent endpoint (alias-style) and page extensions."""
 
 from django.urls import path
 
@@ -6,6 +6,9 @@ from cms.app_base import CMSAppConfig
 
 from rest_framework.response import Response
 from rest_framework.views import APIView
+
+from .models import DemoPageExtension
+from .serializers import DemoSeoExtensionSerializer
 
 
 class DemoAliasView(APIView):
@@ -24,4 +27,8 @@ class DemoAppCMSConfig(CMSAppConfig):
             DemoAliasView.as_view(),
             name="demo-alias-detail",
         ),
+    ]
+    cms_rest_page_extensions = [
+        ("seo", DemoSeoExtensionSerializer),  # explicit serializer -> used as is
+        ("appearance", DemoPageExtension),  # bare model -> auto-serialized
     ]
